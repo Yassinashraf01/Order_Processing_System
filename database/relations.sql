@@ -1,5 +1,41 @@
+-- =====================================================
+-- Database Schema & Documentation
+-- Project: Order Processing System (Online Bookstore)
+-- Description:
+-- This file defines the database schema, relations,
+-- and core triggers required to enforce integrity
+-- constraints and automate inventory replenishment.
+-- =====================================================
 CREATE DATABASE IF NOT EXISTS bookstore_db;
 USE bookstore_db;
+
+CREATE TABLE Users (
+    user_id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(100) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    first_name VARCHAR(100),
+    last_name VARCHAR(100),
+    email VARCHAR(255),
+    role ENUM('ADMIN', 'CUSTOMER') NOT NULL
+);
+
+CREATE TABLE Sales (
+    sale_id INT AUTO_INCREMENT PRIMARY KEY,
+    sale_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    total_price DECIMAL(10,2) NOT NULL,
+    user_id INT,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id)
+);
+
+CREATE TABLE Sale_Items (
+    sale_id INT,
+    ISBN VARCHAR(13),
+    quantity INT NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    PRIMARY KEY (sale_id, ISBN), -- Both are primary key not to make the same book appear twice in the invoice
+    FOREIGN KEY (sale_id) REFERENCES Sales(sale_id),
+    FOREIGN KEY (ISBN) REFERENCES Books(ISBN)
+);
 
 CREATE TABLE Publishers (
     publisher_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -42,3 +78,33 @@ CREATE TABLE Orders_From_Publisher (
     confirmed_date DATETIME,
     FOREIGN KEY (ISBN) REFERENCES Books(ISBN)
 );
+-- =====================================================
+-- Triggers
+-- =====================================================
+
+DELIMITER $$
+
+-- Prevent updating book stock to a negative value
+CREATE TRIGGER prevent_negative_stock
+BEFORE UPDATE ON Books
+FOR EACH ROW
+BEGIN
+    IF NEW.quantity_in_stock < 0 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Book quantity cannot be negative';
+    END IF;
+END$$
+
+-- Automatically place an order when stock drops below threshold
+CREATE TRIGGER auto_order_from_publisher
+AFTER UPDATE ON Books
+FOR EACH ROW
+BEGIN
+    IF OLD.quantity_in_stock >= OLD.threshold
+       AND NEW.quantity_in_stock < NEW.threshold THEN
+        INSERT INTO Orders_From_Publisher (ISBN, quantity_ordered)
+        VALUES (NEW.ISBN, 10);
+    END IF;
+END$$
+
+DELIMITER ;
