@@ -42,3 +42,31 @@ CREATE TABLE Orders_From_Publisher (
     confirmed_date DATETIME,
     FOREIGN KEY (ISBN) REFERENCES Books(ISBN)
 );
+
+DELIMITER //
+
+-- Requirement 2c: Prevent quantity from being negative
+-- Logic: If an update tries to set stock < 0, the transaction fails
+CREATE TRIGGER before_book_update
+BEFORE UPDATE ON Books
+FOR EACH ROW
+BEGIN
+    IF NEW.quantity_in_stock < 0 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Error: Update would cause negative stock';
+    END IF;
+END //
+
+-- Requirement 3a: Auto-order when stock drops below threshold
+-- Logic: Fires when stock moves from above to below the threshold 
+CREATE TRIGGER after_book_update
+AFTER UPDATE ON Books
+FOR EACH ROW
+BEGIN
+    IF OLD.quantity_in_stock >= OLD.threshold AND NEW.quantity_in_stock < NEW.threshold THEN
+        INSERT INTO Orders_From_Publisher (ISBN, quantity_ordered, status)
+        VALUES (NEW.ISBN, 50, 'Pending');
+    END IF;
+END //
+
+DELIMITER ;
