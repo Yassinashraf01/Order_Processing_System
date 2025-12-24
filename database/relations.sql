@@ -18,6 +18,13 @@ CREATE TABLE Users (
     email VARCHAR(255),
     role ENUM('ADMIN', 'CUSTOMER') NOT NULL
 );
+CREATE TABLE Customer_profiles (
+user_id INT PRIMARY KEY,
+phone_number VARCHAR(20) NOT NULL,
+shipping_address TEXT NOT NULL,
+FOREIGN KEY(user_id) REFERENCES Users(user_id) ON DELETE CASCADE
+
+);
 
 CREATE TABLE Sales (
     sale_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -25,6 +32,16 @@ CREATE TABLE Sales (
     total_price DECIMAL(10,2) NOT NULL,
     user_id INT,
     FOREIGN KEY (user_id) REFERENCES Users(user_id)
+);
+
+CREATE TABLE Shopping_Cart (
+user_id INT,
+ISBN VARCHAR(13),
+quantity INT NOT NULL DEFAULT 1,
+PRIMARY KEY(user_id , ISBN),
+FOREIGN KEY (user_id) REFERENCES users(user_id),
+FOREIGN KEY (ISBN) REFERENCES Books(ISBN)
+
 );
 
 CREATE TABLE Sale_Items (
