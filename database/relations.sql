@@ -1,11 +1,4 @@
--- =====================================================
--- Database Schema & Documentation
--- Project: Order Processing System (Online Bookstore)
--- Description:
--- This file defines the database schema, relations,
--- and core triggers required to enforce integrity
--- constraints and automate inventory replenishment.
--- =====================================================
+
 CREATE DATABASE IF NOT EXISTS bookstore_db;
 USE bookstore_db;
 
@@ -81,10 +74,8 @@ CREATE TABLE Orders_From_Publisher (
 
 -- Triggers 
 
-DELIMITER $$
+DELIMITER //
 
--- Trigger 1: Prevent updating book stock to a negative value
--- Requirement: Page 2, Part 2c: "admin cannot update quantity if it causes negative stock"
 CREATE TRIGGER before_book_update
 BEFORE UPDATE ON Books
 FOR EACH ROW
@@ -93,19 +84,22 @@ BEGIN
         SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Error: Update would cause negative stock';
     END IF;
-END$$
+END;
+//
 
--- Trigger 2: Auto-order when stock drops below threshold
--- Requirement: Page 2, Part 3a: "place orders when quantity drops below threshold"
+DELIMITER ;
+
+DELIMITER //
+
 CREATE TRIGGER after_book_update
 AFTER UPDATE ON Books
 FOR EACH ROW
 BEGIN
-    IF OLD.quantity_in_stock >= OLD.threshold 
-       AND NEW.quantity_in_stock < NEW.threshold THEN
+    IF OLD.quantity_in_stock >= OLD.threshold AND NEW.quantity_in_stock < NEW.threshold THEN
         INSERT INTO Orders_From_Publisher (ISBN, quantity_ordered, status)
         VALUES (NEW.ISBN, 50, 'Pending');
     END IF;
-END$$
+END;
+//
 
 DELIMITER ;

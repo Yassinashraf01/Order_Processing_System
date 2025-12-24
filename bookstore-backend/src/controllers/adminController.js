@@ -159,18 +159,14 @@ const addBook = async (req, res) => {
   }
 };
 
-//Export the function so other files can use it mm
-module.exports = { addBook };
-
-
 // 2. Modify Existing Books
-// Purpose: Update book details or manual stock adjustments [cite: 30, 33, 34]
+// Purpose: Update book details or manual stock adjustments
 const updateBook = async (req, res) => {
   const { ISBN } = req.params;
   const { title, selling_price, category, threshold, quantity_in_stock } = req.body;
 
   try {
-    // Requirements state admin must search/find book first [cite: 33]
+    // Requirements state admin must search/find book first
     const [book] = await db.query("SELECT ISBN FROM Books WHERE ISBN = ?", [ISBN]);
     if (book.length === 0) {
       return res.status(404).json({ error: "Book not found" });
@@ -189,13 +185,13 @@ const updateBook = async (req, res) => {
 
     res.json({ success: true, message: "Book updated successfully" });
   } catch (error) {
-    // Catches the 'SIGNAL' from the trigger if stock becomes negative [cite: 35, 36]
+    // Catches the 'SIGNAL' from the trigger if stock becomes negative 
     res.status(400).json({ error: "Update failed", details: error.message });
   }
 };
 
 // 4. Confirm Orders
-// Purpose: Receive quantity and update stock [cite: 42, 43, 44]
+// Purpose: Receive quantity and update stock 
 const confirmOrder = async (req, res) => {
   const { order_id } = req.params;
   const connection = await db.getConnection();
@@ -203,7 +199,7 @@ const confirmOrder = async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    // 1. Check if order exists and is still Pending [cite: 43]
+    // 1. Check if order exists and is still Pending
     const [order] = await connection.query(
       "SELECT ISBN, quantity_ordered FROM Orders_From_Publisher WHERE order_id = ? AND status = 'Pending'", 
       [order_id]
@@ -215,13 +211,13 @@ const confirmOrder = async (req, res) => {
 
     const { ISBN, quantity_ordered } = order[0];
 
-    // 2. Automatically add quantity to book's stock [cite: 44]
+    // 2. Automatically add quantity to book's stock 
     await connection.query(
       "UPDATE Books SET quantity_in_stock = quantity_in_stock + ? WHERE ISBN = ?",
       [quantity_ordered, ISBN]
     );
 
-    // 3. Update status to Confirmed [cite: 44]
+    // 3. Update status to Confirmed
     await connection.query(
       "UPDATE Orders_From_Publisher SET status = 'Confirmed', confirmed_date = NOW() WHERE order_id = ?",
       [order_id]
@@ -235,4 +231,8 @@ const confirmOrder = async (req, res) => {
   } finally {
     connection.release();
   }
-};
+
+  
+}; 
+
+module.exports = { addBook, updateBook, confirmOrder };
