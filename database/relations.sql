@@ -39,7 +39,7 @@ user_id INT,
 ISBN VARCHAR(13),
 quantity INT NOT NULL DEFAULT 1,
 PRIMARY KEY(user_id , ISBN),
-FOREIGN KEY (user_id) REFERENCES users(user_id),
+FOREIGN KEY (user_id) REFERENCES Users(user_id),
 FOREIGN KEY (ISBN) REFERENCES Books(ISBN)
 
 );
