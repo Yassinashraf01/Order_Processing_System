@@ -11,6 +11,13 @@ CREATE TABLE Users (
     email VARCHAR(255),
     role ENUM('ADMIN', 'CUSTOMER') NOT NULL
 );
+CREATE TABLE Customer_profiles (
+user_id INT PRIMARY KEY,
+phone_number VARCHAR(20) NOT NULL,
+shipping_address TEXT NOT NULL,
+FOREIGN KEY(user_id) REFERENCES Users(user_id) ON DELETE CASCADE
+
+);
 
 CREATE TABLE Sales (
     sale_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -20,15 +27,8 @@ CREATE TABLE Sales (
     FOREIGN KEY (user_id) REFERENCES Users(user_id)
 );
 
-CREATE TABLE Sale_Items (
-    sale_id INT,
-    ISBN VARCHAR(13),
-    quantity INT NOT NULL,
-    price DECIMAL(10,2) NOT NULL,
-    PRIMARY KEY (sale_id, ISBN), -- Both are primary key not to make the same book appear twice in the invoice
-    FOREIGN KEY (sale_id) REFERENCES Sales(sale_id),
-    FOREIGN KEY (ISBN) REFERENCES Books(ISBN)
-);
+
+
 
 CREATE TABLE Publishers (
     publisher_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -48,6 +48,25 @@ CREATE TABLE Books (
     threshold INT DEFAULT 10,
     FOREIGN KEY (publisher_id) REFERENCES Publishers(publisher_id)
 );
+CREATE TABLE Shopping_Cart (
+user_id INT,
+ISBN VARCHAR(13),
+quantity INT NOT NULL DEFAULT 1,
+PRIMARY KEY(user_id , ISBN),
+FOREIGN KEY (user_id) REFERENCES Users(user_id),
+FOREIGN KEY (ISBN) REFERENCES Books(ISBN)
+
+);
+CREATE TABLE Sale_Items (
+    sale_id INT,
+    ISBN VARCHAR(13),
+    quantity INT NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    PRIMARY KEY (sale_id, ISBN), -- Both are primary key not to make the same book appear twice in the invoice
+    FOREIGN KEY (sale_id) REFERENCES Sales(sale_id),
+    FOREIGN KEY (ISBN) REFERENCES Books(ISBN)
+);
+
 
 CREATE TABLE Authors (
     author_id INT AUTO_INCREMENT PRIMARY KEY,
