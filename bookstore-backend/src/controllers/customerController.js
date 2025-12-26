@@ -1,44 +1,193 @@
 const db = require('../config/db');
+const bcrypt = require('bcrypt');
+
+// Validation helper functions (defined outside the object)
+const validateEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+};
+
+const validatePhone = (phone) => {
+    const phoneRegex = /^\+?[\d\s-()]{10,}$/;
+    return phoneRegex.test(phone);
+};
+
+const validatePassword = (password) => {
+    // At least 8 characters, 1 uppercase, 1 lowercase, 1 number
+    return password.length >= 8 && 
+           /[A-Z]/.test(password) && 
+           /[a-z]/.test(password) && 
+           /[0-9]/.test(password);
+};
 
 const customerController = {
-    // 1. Sign Up Logic
-    // Requirement: provide username, password, names, email, phone, and shipping address 
+
+    // 1. Sign Up Logic with Authentication
     register: async (req, res) => {
         const { username, password, firstName, lastName, email, phone, address } = req.body;
+        
         try {
+            // Validate required fields
+            if (!username || !password || !firstName || !lastName || !email || !phone || !address) {
+                return res.status(400).json({ error: "All fields are required" });
+            }
+
+            // Validate email format
+            if (!validateEmail(email)) {
+                return res.status(400).json({ error: "Invalid email format" });
+            }
+
+            // Validate phone format
+            if (!validatePhone(phone)) {
+                return res.status(400).json({ error: "Invalid phone number format" });
+            }
+
+            // Validate password strength
+            if (!validatePassword(password)) {
+                return res.status(400).json({ 
+                    error: "Password must be at least 8 characters with uppercase, lowercase, and number" 
+                });
+            }
+
+            // Check if username already exists
+            const [existingUsername] = await db.execute(
+                'SELECT user_id FROM Users WHERE username = ?',
+                [username]
+            );
+            if (existingUsername.length > 0) {
+                return res.status(409).json({ error: "Username already exists" });
+            }
+
+            // Check if email already exists
+            const [existingEmail] = await db.execute(
+                'SELECT user_id FROM Users WHERE email = ?',
+                [email]
+            );
+            if (existingEmail.length > 0) {
+                return res.status(409).json({ error: "Email already registered" });
+            }
+
+            // Hash password
+            const hashedPassword = await bcrypt.hash(password, 10);
+
             // Insert into the main Users table
             const [userResult] = await db.execute(
                 'INSERT INTO Users (username, password, first_name, last_name, email, role) VALUES (?, ?, ?, ?, ?, "CUSTOMER")',
-                [username, password, firstName, lastName, email]
+                [username, hashedPassword, firstName, lastName, email]
             );
             
             const userId = userResult.insertId;
 
-            // Insert into the Customer_Profiles table (to keep Admin profile clean)
+            // Insert into the Customer_Profiles table
             await db.execute(
                 'INSERT INTO Customer_Profiles (user_id, phone_number, shipping_address) VALUES (?, ?, ?)',
                 [userId, phone, address]
             );
 
-            res.status(201).json({ message: "Customer registered successfully" });
+            res.status(201).json({ 
+                message: "Customer registered successfully",
+                userId: userId 
+            });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
     },
 
-    // 2. Edit Personal Information
-    // Requirement: Edit personal info including password 
+    // Login function (you'll need this!)
+    login: async (req, res) => {
+        const { username, password } = req.body;
+
+        try {
+            if (!username || !password) {
+                return res.status(400).json({ error: "Username and password are required" });
+            }
+
+            // Get user from database
+            const [users] = await db.execute(
+                'SELECT user_id, username, password, role FROM Users WHERE username = ?',
+                [username]
+            );
+
+            if (users.length === 0) {
+                return res.status(401).json({ error: "Invalid credentials" });
+            }
+
+            const user = users[0];
+
+            // Verify password
+            const isValidPassword = await bcrypt.compare(password, user.password);
+            if (!isValidPassword) {
+                return res.status(401).json({ error: "Invalid credentials" });
+            }
+
+            // Return user info (excluding password)
+            res.json({ 
+                message: "Login successful",
+                userId: user.user_id,
+                username: user.username,
+                role: user.role
+            });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // 2. Edit Personal Information with validation
     updateProfile: async (req, res) => {
         const { userId, firstName, lastName, email, phone, address, password } = req.body;
+        
         try {
-            await db.execute(
-                'UPDATE Users SET first_name = ?, last_name = ?, email = ?, password = ? WHERE user_id = ?',
-                [firstName, lastName, email, password, userId]
-            );
+            // Validate email if provided
+            if (email && !validateEmail(email)) {
+                return res.status(400).json({ error: "Invalid email format" });
+            }
+
+            // Validate phone if provided
+            if (phone && !validatePhone(phone)) {
+                return res.status(400).json({ error: "Invalid phone number format" });
+            }
+
+            // Check if email is taken by another user
+            if (email) {
+                const [existingEmail] = await db.execute(
+                    'SELECT user_id FROM Users WHERE email = ? AND user_id != ?',
+                    [email, userId]
+                );
+                if (existingEmail.length > 0) {
+                    return res.status(409).json({ error: "Email already in use by another account" });
+                }
+            }
+
+            // Hash new password if provided
+            let hashedPassword = null;
+            if (password) {
+                if (!validatePassword(password)) {
+                    return res.status(400).json({ 
+                        error: "Password must be at least 8 characters with uppercase, lowercase, and number" 
+                    });
+                }
+                hashedPassword = await bcrypt.hash(password, 10);
+            }
+
+            // Update Users table
+            if (hashedPassword) {
+                await db.execute(
+                    'UPDATE Users SET first_name = ?, last_name = ?, email = ?, password = ? WHERE user_id = ?',
+                    [firstName, lastName, email, hashedPassword, userId]
+                );
+            } else {
+                await db.execute(
+                    'UPDATE Users SET first_name = ?, last_name = ?, email = ? WHERE user_id = ?',
+                    [firstName, lastName, email, userId]
+                );
+            }
+
+            // Update Customer_Profiles table
             await db.execute(
                 'UPDATE Customer_Profiles SET phone_number = ?, shipping_address = ? WHERE user_id = ?',
                 [phone, address, userId]
             );
+
             res.json({ message: "Profile updated successfully" });
         } catch (error) {
             res.status(500).json({ error: error.message });
@@ -46,7 +195,6 @@ const customerController = {
     },
 
     // 3. Search for Books
-    // Requirement: Search by any attribute (ISBN, title, category, author, publisher) 
     search: async (req, res) => {
         const { keyword, category } = req.query;
         let query = `
@@ -74,10 +222,29 @@ const customerController = {
     },
 
     // 4. Manage Shopping Cart (Add)
-    // Requirement: Add books to cart [cite: 72]
     addToCart: async (req, res) => {
         const { userId, isbn, quantity } = req.body;
+        
         try {
+            // Validate quantity
+            if (!quantity || quantity <= 0) {
+                return res.status(400).json({ error: "Invalid quantity" });
+            }
+
+            // Check if book exists and has enough stock
+            const [books] = await db.execute(
+                'SELECT quantity_in_stock FROM Books WHERE ISBN = ?',
+                [isbn]
+            );
+            
+            if (books.length === 0) {
+                return res.status(404).json({ error: "Book not found" });
+            }
+
+            if (books[0].quantity_in_stock < quantity) {
+                return res.status(400).json({ error: "Insufficient stock" });
+            }
+
             await db.execute(
                 'INSERT INTO Shopping_Cart (user_id, ISBN, quantity) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE quantity = quantity + ?',
                 [userId, isbn, quantity, quantity]
@@ -89,7 +256,6 @@ const customerController = {
     },
 
     // 5. View Cart
-    // Requirement: View items, individual prices, and total prices [cite: 73, 74]
     viewCart: async (req, res) => {
         const { userId } = req.params;
         try {
@@ -105,12 +271,18 @@ const customerController = {
     },
 
     // 6. Check Out (The Transaction)
-    // Requirement: Validate card, deduct stock, and update sales [cite: 79, 82, 83, 84]
     checkout: async (req, res) => {
         const { userId, creditCard, expiryDate } = req.body;
         
+        // Validate credit card
         if (!creditCard || creditCard.length < 16) {
             return res.status(400).json({ error: "Invalid credit card info" });
+        }
+
+        // Validate expiry date format (MM/YY)
+        const expiryRegex = /^(0[1-9]|1[0-2])\/\d{2}$/;
+        if (!expiryDate || !expiryRegex.test(expiryDate)) {
+            return res.status(400).json({ error: "Invalid expiry date format (use MM/YY)" });
         }
 
         const connection = await db.getConnection();
@@ -122,7 +294,9 @@ const customerController = {
                 [userId]
             );
 
-            if (cartItems.length === 0) throw new Error("Cart is empty");
+            if (cartItems.length === 0) {
+                throw new Error("Cart is empty");
+            }
 
             let total = cartItems.reduce((sum, item) => sum + (item.quantity * item.selling_price), 0);
 
@@ -132,7 +306,6 @@ const customerController = {
             );
 
             for (let item of cartItems) {
-                // This triggers 'before_book_update' to prevent negative stock [cite: 35, 36]
                 await connection.execute(
                     'UPDATE Books SET quantity_in_stock = quantity_in_stock - ? WHERE ISBN = ?',
                     [item.quantity, item.ISBN]
@@ -156,7 +329,6 @@ const customerController = {
     },
 
     // 7. View Past Orders
-    // Requirement: View order details (no, date, ISBN, names, total) [cite: 85, 86]
     getPastOrders: async (req, res) => {
         const { userId } = req.params;
         try {
@@ -176,7 +348,6 @@ const customerController = {
     },
 
     // 8. Logout
-    // Requirement: Logout removes all items from the current cart [cite: 87, 88]
     logout: async (req, res) => {
         const { userId } = req.body;
         try {
