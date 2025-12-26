@@ -40,12 +40,12 @@ CREATE TABLE Publishers (
 CREATE TABLE Books (
     ISBN VARCHAR(13) PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
-    publisher_id INT,
+    publisher_id INT NOT NULL, --the publisher id should not be null / no book is added without a publisher
     publication_year INT,
     selling_price DECIMAL(10, 2) NOT NULL,
     category ENUM('Science', 'Art', 'Religion', 'History', 'Geography') NOT NULL,
     quantity_in_stock INT DEFAULT 0,
-    threshold INT DEFAULT 10,
+    threshold INT NOT NULL CHECK (threshold >= 1)
     FOREIGN KEY (publisher_id) REFERENCES Publishers(publisher_id)
 );
 CREATE TABLE Shopping_Cart (
