@@ -319,5 +319,240 @@ const confirmOrder = async (req, res) => {
 
 
 };
+// a) Total sales for books in the previous month
+const getSalesPreviousMonth = async (req, res) => {
+  try {
+    const [result] = await db.query(`
+      SELECT 
+        DATE_FORMAT(sale_date, '%Y-%m') as month,
+        COUNT(*) as total_orders,
+        SUM(total_price) as total_sales
+      FROM Sales
+      WHERE YEAR(sale_date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+        AND MONTH(sale_date) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+      GROUP BY DATE_FORMAT(sale_date, '%Y-%m')
+    `);
 
-module.exports = { addBook, updateBook, confirmOrder };
+    if (result.length === 0) {
+      return res.status(404).json({
+        message: "No sales found for previous month"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        month: result[0].month,
+        total_orders: result[0].total_orders,
+        total_sales: parseFloat(result[0].total_sales)
+      }
+    });
+
+  } catch (error) {
+    console.error("Get previous month sales error:", error);
+    return res.status(500).json({
+      error: "Failed to get sales data",
+      details: error.message
+    });
+  }
+};
+
+// b) Total sales for books on a certain day
+const getSalesByDate = async (req, res) => {
+  const { date } = req.query; // Format: YYYY-MM-DD
+
+  try {
+    if (!date) {
+      return res.status(400).json({
+        error: "Date is required. Format: YYYY-MM-DD"
+      });
+    }
+
+    const [result] = await db.query(`
+      SELECT 
+        ? as sale_day,
+        COUNT(*) as total_orders,
+        SUM(total_price) as total_sales
+      FROM Sales
+      WHERE DATE(sale_date) = ?
+      GROUP BY DATE(sale_date)
+    `, [date, date]);
+
+    if (result.length === 0) {
+      return res.status(404).json({
+        message: `No sales found for ${date}`
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        date: result[0].sale_day,
+        total_orders: result[0].total_orders,
+        total_sales: parseFloat(result[0].total_sales)
+      }
+    });
+
+  } catch (error) {
+    console.error("Get sales by date error:", error);
+    return res.status(500).json({
+      error: "Failed to get sales data",
+      details: error.message
+    });
+  }
+};
+// c) Top 5 Customers (For the Last 3 Months)
+const getTop5Customers = async (req, res) => {
+  try {
+    const [result] = await db.query(`
+      SELECT 
+        u.user_id,
+        u.username,
+        u.first_name,
+        u.last_name,
+        u.email,
+        COUNT(s.sale_id) as total_orders,
+        SUM(s.total_price) as total_spent
+      FROM Users u
+      JOIN Sales s ON u.user_id = s.user_id
+      WHERE s.sale_date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)
+      GROUP BY u.user_id, u.username, u.first_name, u.last_name, u.email
+      ORDER BY total_spent DESC
+      LIMIT 5
+    `);
+
+    if (result.length === 0) {
+      return res.status(404).json({
+        message: "No customer data found for the last 3 months"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: result.map(customer => ({
+        user_id: customer.user_id,
+        username: customer.username,
+        full_name: `${customer.first_name} ${customer.last_name}`,
+        email: customer.email,
+        total_orders: customer.total_orders,
+        total_spent: parseFloat(customer.total_spent)
+      }))
+    });
+
+  } catch (error) {
+    console.error("Get top 5 customers error:", error);
+    return res.status(500).json({
+      error: "Failed to get top customers",
+      details: error.message
+    });
+  }
+};
+
+// d) Top 10 Selling Books (For the Last 3 Months)
+const getTop10Books = async (req, res) => {
+  try {
+    const [result] = await db.query(`
+      SELECT 
+        b.ISBN,
+        b.title,
+        b.category,
+        b.selling_price,
+        SUM(si.quantity) as total_sold,
+        SUM(si.quantity * si.price) as total_revenue
+      FROM Books b
+      JOIN Sale_Items si ON b.ISBN = si.ISBN
+      JOIN Sales s ON si.sale_id = s.sale_id
+      WHERE s.sale_date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)
+      GROUP BY b.ISBN, b.title, b.category, b.selling_price
+      ORDER BY total_sold DESC
+      LIMIT 10
+    `);
+
+    if (result.length === 0) {
+      return res.status(404).json({
+        message: "No sales data found for the last 3 months"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: result.map(book => ({
+        ISBN: book.ISBN,
+        title: book.title,
+        category: book.category,
+        selling_price: parseFloat(book.selling_price),
+        total_sold: book.total_sold,
+        total_revenue: parseFloat(book.total_revenue)
+      }))
+    });
+
+  } catch (error) {
+    console.error("Get top 10 books error:", error);
+    return res.status(500).json({
+      error: "Failed to get top selling books",
+      details: error.message
+    });
+  }
+};
+
+// e) Total Number of Times a Specific Book Has Been Ordered
+const getBookOrderCount = async (req, res) => {
+  const { ISBN } = req.params;
+
+  try {
+    // Check if book exists
+    const [book] = await db.query(
+      "SELECT ISBN, title FROM Books WHERE ISBN = ?",
+      [ISBN]
+    );
+
+    if (book.length === 0) {
+      return res.status(404).json({
+        error: "Book not found"
+      });
+    }
+
+    // Count orders from publisher
+    const [orderCount] = await db.query(`
+      SELECT 
+        COUNT(*) as total_orders,
+        SUM(quantity_ordered) as total_quantity_ordered,
+        SUM(CASE WHEN status = 'Confirmed' THEN 1 ELSE 0 END) as confirmed_orders,
+        SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending_orders
+      FROM Orders_From_Publisher
+      WHERE ISBN = ?
+    `, [ISBN]);
+
+    return res.status(200).json({
+      success: true,
+      book: {
+        ISBN: book[0].ISBN,
+        title: book[0].title
+      },
+      orders: {
+        total_orders: orderCount[0].total_orders,
+        total_quantity_ordered: orderCount[0].total_quantity_ordered || 0,
+        confirmed_orders: orderCount[0].confirmed_orders,
+        pending_orders: orderCount[0].pending_orders
+      }
+    });
+
+  } catch (error) {
+    console.error("Get book order count error:", error);
+    return res.status(500).json({
+      error: "Failed to get order count",
+      details: error.message
+    });
+  }
+};
+
+module.exports = {
+  addBook,
+  updateBook,
+  confirmOrder,
+  getSalesPreviousMonth,
+  getSalesByDate,
+  getTop5Customers,
+  getTop10Books,
+  getBookOrderCount
+};
