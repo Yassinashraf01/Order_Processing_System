@@ -1,14 +1,35 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
-const adminController = require("../controllers/adminController");
+const { verifyToken, isAdmin } = require('../middleware/auth');
+const {
+    addBook,
+    updateBook,
+    confirmOrder,
+    getSalesPreviousMonth,
+    getSalesByDate,
+    getTop5Customers,
+    getTop10Books,
+    getBookOrderCount
+} = require('../controllers/adminController');
 
-router.post("/books", adminController.addBook);
-router.put('/book/:ISBN', adminController.updateBook);
-router.post('/order/confirm/:order_id', adminController.confirmOrder);
-router.get('/reports/sales/previous-month', adminController.getSalesPreviousMonth);
-router.get('/reports/sales/by-date', adminController.getSalesByDate);
-router.get('/reports/customers/top5', adminController.getTop5Customers);
-router.get('/reports/books/top10', adminController.getTop10Books);
-router.get('/reports/books/:ISBN/orders', adminController.getBookOrderCount);
+// ✅ ALL ROUTES NOW REQUIRE ADMIN TOKEN
+// Apply middleware to ALL admin routes
+router.use(verifyToken, isAdmin);
+
+// 1. Add New Book
+router.post('/books', addBook);
+
+// 2. Update Book (Modify quantity)
+router.put('/books/:ISBN', updateBook);
+
+// 3. Confirm Order from Publisher
+router.post('/orders/:order_id/confirm', confirmOrder);
+
+// 4. Reports
+router.get('/reports/sales/previous-month', getSalesPreviousMonth);
+router.get('/reports/sales/by-date', getSalesByDate);
+router.get('/reports/top-customers', getTop5Customers);
+router.get('/reports/top-books', getTop10Books);
+router.get('/reports/book-orders/:ISBN', getBookOrderCount);
 
 module.exports = router;

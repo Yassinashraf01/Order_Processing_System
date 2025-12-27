@@ -91,6 +91,14 @@ CREATE TABLE Orders_From_Publisher (
     FOREIGN KEY (ISBN) REFERENCES Books(ISBN)
 );
 
+CREATE TABLE blacklisted_tokens (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    token TEXT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
 -- Triggers 
 
 DELIMITER //
