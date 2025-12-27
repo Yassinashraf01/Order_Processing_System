@@ -1,0 +1,6 @@
+C:\Users\DELL\Order_Processing_System\bookstore-backend> $body = '{"ISBN":"9781234567891","title":"Database Systems 101","selling_price":49.99,"category":"Science","threshold":5,"author_names":["John Smith"]}'
+>> Invoke-RestMethod -Method Post -Uri "http://localhost:5000/api/admin/books" -ContentType "application/json" -Body $body 
+                                                                                                                          plication/json" -Body $body;5f2dd1cb-a2ef-4c75-89ea-7ba201d2a86e
+success message                 book
+------- -------                 ----
+   True Book added successfully @{ISBN=9781234567891; title=Database Systems 101; threshold=5; category=Science; initia... 
