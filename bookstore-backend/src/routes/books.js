@@ -3,6 +3,7 @@ const router = express.Router();
 const bookController = require("../controllers/bookController");
 
 router.get("/", bookController.getAllBooks);
+router.get("/global-search", bookController.globalSearch);
 router.get("/isbn/:isbn", bookController.searchByISBN);
 router.get("/search/title", bookController.searchByTitle);
 router.get("/category/:category", bookController.searchByCategory);

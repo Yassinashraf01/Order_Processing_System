@@ -9,7 +9,8 @@ const {
     getSalesByDate,
     getTop5Customers,
     getTop10Books,
-    getBookOrderCount
+    getBookOrderCount,
+    getPendingOrders
 } = require('../controllers/adminController');
 
 // ✅ ALL ROUTES NOW REQUIRE ADMIN TOKEN
@@ -23,6 +24,7 @@ router.post('/books', addBook);
 router.put('/books/:ISBN', updateBook);
 
 // 3. Confirm Order from Publisher
+router.get('/orders/pending', getPendingOrders);
 router.post('/orders/:order_id/confirm', confirmOrder);
 
 // 4. Reports

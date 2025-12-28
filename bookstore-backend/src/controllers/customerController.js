@@ -291,24 +291,13 @@ const customerController = {
     // 6. Remove from Cart - Uses userId from token
     removeFromCart: async (req, res) => {
         const { isbn } = req.body;
-        const userId = req.user.userId; // From token
+        const userId = req.user.userId;
 
         try {
             if (!isbn) {
                 return res.status(400).json({ error: "ISBN is required" });
             }
 
-            // Check if item exists in cart
-            const [cartItem] = await db.execute(
-                'SELECT * FROM Shopping_Cart WHERE user_id = ? AND ISBN = ?',
-                [userId, isbn]
-            );
-
-            if (cartItem.length === 0) {
-                return res.status(404).json({ error: "Item not found in cart" });
-            }
-
-            // Remove item from cart
             await db.execute(
                 'DELETE FROM Shopping_Cart WHERE user_id = ? AND ISBN = ?',
                 [userId, isbn]
@@ -320,94 +309,179 @@ const customerController = {
         }
     },
 
-    // 7. Checkout - Uses userId from token
-    checkout: async (req, res) => {
-        const { creditCard, expiryDate } = req.body;
-        const userId = req.user.userId; // From token
-
-        // Validate credit card
-        if (!creditCard || creditCard.length < 16) {
-            return res.status(400).json({ error: "Invalid credit card number" });
-        }
-
-        // Validate expiry date format (MM/YY)
-        const expiryRegex = /^(0[1-9]|1[0-2])\/\d{2}$/;
-        if (!expiryDate || !expiryRegex.test(expiryDate)) {
-            return res.status(400).json({ error: "Invalid expiry date format (use MM/YY)" });
-        }
-
-        // Check if expiry date is in the future
-        const [month, year] = expiryDate.split('/');
-        const expiryDateObj = new Date(2000 + parseInt(year), parseInt(month) - 1);
-        if (expiryDateObj < new Date()) {
-            return res.status(400).json({ error: "Credit card has expired" });
-        }
-
-        const connection = await db.getConnection();
+    // New: Clear all items from cart
+    clearCart: async (req, res) => {
+        const userId = req.user.userId;
         try {
-            await connection.beginTransaction();
-
-            // Get cart items
-            const [cartItems] = await connection.execute(
-                'SELECT c.ISBN, c.quantity, b.selling_price FROM Shopping_Cart c JOIN Books b ON c.ISBN = b.ISBN WHERE c.user_id = ?',
-                [userId]
-            );
-
-            if (cartItems.length === 0) {
-                throw new Error("Cart is empty");
-            }
-
-            // Calculate total
-            let total = cartItems.reduce((sum, item) => sum + (item.quantity * item.selling_price), 0);
-
-            // Create sale record
-            const [sale] = await connection.execute(
-                'INSERT INTO Sales (user_id, total_price) VALUES (?, ?)',
-                [userId, total]
-            );
-
-            // Process each item
-            for (let item of cartItems) {
-                // Check stock availability
-                const [book] = await connection.execute(
-                    'SELECT quantity_in_stock FROM Books WHERE ISBN = ?',
-                    [item.ISBN]
-                );
-
-                if (book[0].quantity_in_stock < item.quantity) {
-                    throw new Error(`Insufficient stock for ISBN: ${item.ISBN}`);
-                }
-
-                // Update stock
-                await connection.execute(
-                    'UPDATE Books SET quantity_in_stock = quantity_in_stock - ? WHERE ISBN = ?',
-                    [item.quantity, item.ISBN]
-                );
-
-                // Add sale item
-                await connection.execute(
-                    'INSERT INTO Sale_Items (sale_id, ISBN, quantity, price) VALUES (?, ?, ?, ?)',
-                    [sale.insertId, item.ISBN, item.quantity, item.selling_price]
-                );
-            }
-
-            // Clear cart
-            await connection.execute('DELETE FROM Shopping_Cart WHERE user_id = ?', [userId]);
-
-            await connection.commit();
-
-            res.json({
-                message: "Checkout successful!",
-                saleId: sale.insertId,
-                total: total.toFixed(2)
-            });
+            await db.execute('DELETE FROM Shopping_Cart WHERE user_id = ?', [userId]);
+            res.json({ message: "Cart cleared successfully" });
         } catch (error) {
-            await connection.rollback();
             res.status(500).json({ error: error.message });
-        } finally {
-            connection.release();
         }
     },
+
+    // 7. Checkout - Uses userId from token
+   checkout: async (req, res) => {
+    const userId = req.user.userId; // From token
+    
+    // Validate Visa card format
+    const { creditCard, expiryDate } = req.body;
+    
+    if (!creditCard || !expiryDate) {
+        return res.status(400).json({ error: "Credit card and expiry date are required" });
+    }
+    
+    // Validate Visa card number format (16 digits starting with 4)
+    const visaRegex = /^4[0-9]{15}$/;
+    if (!visaRegex.test(creditCard)) {
+        return res.status(400).json({ 
+            error: "Invalid Visa card number. Must be 16 digits starting with 4" 
+        });
+    }
+    
+    // Validate expiry date format (MM/YY)
+    const expiryRegex = /^(0[1-9]|1[0-2])\/([0-9]{2})$/;
+    if (!expiryRegex.test(expiryDate)) {
+        return res.status(400).json({ 
+            error: "Invalid expiry date format. Use MM/YY format" 
+        });
+    }
+    
+    // Validate expiry date is not in the past
+    const [month, year] = expiryDate.split('/');
+    const currentDate = new Date();
+    const currentYear = currentDate.getFullYear() % 100; // Get last 2 digits
+    const currentMonth = currentDate.getMonth() + 1; // Months are 0-indexed
+    
+    const expiryYear = parseInt(year);
+    const expiryMonth = parseInt(month);
+    
+    if (expiryYear < currentYear || 
+        (expiryYear === currentYear && expiryMonth < currentMonth)) {
+        return res.status(400).json({ 
+            error: "Card has expired. Please use a valid card" 
+        });
+    }
+    
+    // Validate expiry date is not too far in the future (optional, e.g., 10 years max)
+    if (expiryYear > currentYear + 10) {
+        return res.status(400).json({ 
+            error: "Expiry date is too far in the future. Maximum 10 years" 
+        });
+    }
+    
+    // Luhn algorithm validation for Visa card
+    function validateLuhn(cardNumber) {
+        let sum = 0;
+        let shouldDouble = false;
+        
+        // Process from right to left
+        for (let i = cardNumber.length - 1; i >= 0; i--) {
+            let digit = parseInt(cardNumber.charAt(i));
+            
+            if (shouldDouble) {
+                digit *= 2;
+                if (digit > 9) {
+                    digit -= 9;
+                }
+            }
+            
+            sum += digit;
+            shouldDouble = !shouldDouble;
+        }
+        
+        return (sum % 10) === 0;
+    }
+    
+    if (!validateLuhn(creditCard)) {
+        return res.status(400).json({ 
+            error: "Invalid card number. Please check and try again" 
+        });
+    }
+    
+    const connection = await db.getConnection();
+    
+    try {
+        await connection.beginTransaction();
+        
+        // Get cart items with full column names
+        const [cartItems] = await connection.query(
+            `SELECT c.ISBN, c.quantity, b.selling_price, b.quantity_in_stock 
+             FROM Shopping_Cart c 
+             JOIN Books b ON c.ISBN = b.ISBN 
+             WHERE c.user_id = ?`,
+            [userId]
+        );
+        
+        if (!cartItems || cartItems.length === 0) {
+            throw new Error("Cart is empty");
+        }
+        
+        // Calculate total with fallback for property naming
+        let total = 0;
+        for (const item of cartItems) {
+            const qty = item.quantity || item.qty || 0;
+            const price = item.selling_price || item.price || 0;
+            total += (qty * price);
+        }
+        
+        // Mask credit card for storage (store only last 4 digits)
+        const maskedCard = `****-****-****-${creditCard.slice(-4)}`;
+        
+        // Create sale record with payment info
+        const [saleResult] = await connection.query(
+            `INSERT INTO Sales (user_id, total_price, payment_method, last_four_digits, expiry_date) 
+             VALUES (?, ?, ?, ?, ?)`,
+            [userId, total, 'VISA', creditCard.slice(-4), expiryDate]
+        );
+        
+        const saleId = saleResult.insertId;
+        
+        // Process each item
+        for (let item of cartItems) {
+            // Handling multiple possible property name styles
+            const isbn = item.ISBN || item.isbn;
+            const qty = item.quantity || item.qty;
+            const price = item.selling_price || item.price;
+            const stock = item.quantity_in_stock || item.stock;
+            
+            if (stock < qty) {
+                throw new Error(`Insufficient stock for ISBN: ${isbn}`);
+            }
+            
+            // Update stock
+            await connection.query(
+                'UPDATE Books SET quantity_in_stock = quantity_in_stock - ? WHERE ISBN = ?',
+                [qty, isbn]
+            );
+            
+            // Add sale item
+            await connection.query(
+                'INSERT INTO Sale_Items (sale_id, ISBN, quantity, price) VALUES (?, ?, ?, ?)',
+                [saleId, isbn, qty, price]
+            );
+        }
+        
+        // Clear cart
+        await connection.query('DELETE FROM Shopping_Cart WHERE user_id = ?', [userId]);
+        
+        await connection.commit();
+        
+        res.json({ 
+            message: "Checkout successful!", 
+            saleId: saleId, 
+            total: total.toFixed(2),
+            paymentMethod: "VISA",
+            cardEndingIn: creditCard.slice(-4)
+        });
+        
+    } catch (error) {
+        await connection.rollback();
+        res.status(500).json({ error: error.message });
+    } finally {
+        connection.release();
+    }
+},
 
     // 8. Get Past Orders - Uses userId from token
     getPastOrders: async (req, res) => {

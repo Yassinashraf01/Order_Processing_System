@@ -2,6 +2,58 @@
 const db = require("../config/db");
 
 // ==========================================
+// Global Search (Title, ISBN, Author)
+// ==========================================
+const globalSearch = async (req, res) => {
+    try {
+        const { query } = req.query;
+
+        if (!query) {
+            return res.status(400).json({
+                error: "Search query is required"
+            });
+        }
+
+        const [books] = await db.query(
+            `SELECT 
+        b.ISBN,
+        b.title,
+        b.publication_year,
+        b.selling_price,
+        b.category,
+        b.quantity_in_stock,
+        p.name AS publisher_name,
+        GROUP_CONCAT(a.author_name SEPARATOR ', ') AS authors,
+        CASE 
+          WHEN b.quantity_in_stock > 0 THEN 'Available'
+          ELSE 'Out of Stock'
+        END AS availability
+      FROM Books b
+      LEFT JOIN Publishers p ON b.publisher_id = p.publisher_id
+      LEFT JOIN Book_Authors ba ON b.ISBN = ba.ISBN
+      LEFT JOIN Authors a ON ba.author_id = a.author_id
+      WHERE b.title LIKE ? OR b.ISBN LIKE ? OR a.author_name LIKE ? OR p.name LIKE ? OR b.category LIKE ?
+      GROUP BY b.ISBN, b.title, b.publication_year, b.selling_price, 
+               b.category, b.quantity_in_stock, p.name`,
+            [`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`]
+        );
+
+        res.json({
+            success: true,
+            count: books.length,
+            books: books
+        });
+
+    } catch (error) {
+        console.error("Global search error:", error);
+        res.status(500).json({
+            error: "Failed to perform global search",
+            details: error.message
+        });
+    }
+};
+
+// ==========================================
 // Search by ISBN
 // ==========================================
 const searchByISBN = async (req, res) => {
@@ -313,6 +365,7 @@ const getAllBooks = async (req, res) => {
 
 // Export all functions
 module.exports = {
+    globalSearch,
     searchByISBN,
     searchByTitle,
     searchByCategory,

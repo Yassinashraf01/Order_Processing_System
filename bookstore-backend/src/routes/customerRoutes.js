@@ -12,6 +12,7 @@ router.put('/profile', verifyToken, isCustomer, customerController.updateProfile
 router.post('/cart/add', verifyToken, isCustomer, customerController.addToCart);
 router.get('/cart', verifyToken, isCustomer, customerController.viewCart);
 router.delete('/cart/remove', verifyToken, isCustomer, customerController.removeFromCart);
+router.delete('/cart/clear', verifyToken, isCustomer, customerController.clearCart);
 router.post('/checkout', verifyToken, isCustomer, customerController.checkout);
 router.get('/orders', verifyToken, isCustomer, customerController.getPastOrders);
 router.post('/logout', verifyToken, isCustomer, customerController.logout);

@@ -7,109 +7,106 @@ const addBook = async (req, res) => {
   try {
     const {
       ISBN,
+      Title,
       title,
-      publisher_id,
-      publication_year,
-      selling_price,
+      Category,
       category,
+      PublisherName,
+      publisher_name,
+      publisher_id,
+      PublicationYear,
+      publication_year,
+      Price,
+      selling_price,
+      StockQuantity,
+      initial_stock,
       threshold,
+      Authors,
       author_names
     } = req.body;
 
-    // 1️⃣ Required fields (publisher_id is REQUIRED)
-    if (!ISBN || !title || !publisher_id || !selling_price || !category) {
+    // Map fields from different possible naming conventions (Frontend vs Backend)
+    const finalISBN = ISBN;
+    const finalTitle = title || Title;
+    const finalCategory = category || Category;
+    const finalPrice = selling_price || Price;
+    const finalYear = publication_year || PublicationYear;
+    const finalStock = initial_stock || StockQuantity || 0;
+    const finalThreshold = threshold || 10; // Default threshold of 10
+
+    // Handle Authors (string from frontend to array for backend)
+    let finalAuthors = author_names || [];
+    if (!finalAuthors.length && Authors) {
+      finalAuthors = Authors.split(',').map(a => a.trim());
+    }
+
+    // 1️⃣ Required fields check
+    if (!finalISBN || !finalTitle || !finalCategory || !finalPrice) {
       return res.status(400).json({
-        error: "Missing required fields: ISBN, title, publisher_id, selling_price, category"
+        error: "Missing required fields: ISBN, title, price, category"
       });
     }
 
-    // 2️⃣ Validate ISBN (13 digits)
-    if (!/^\d{13}$/.test(ISBN)) {
-      return res.status(400).json({
-        error: "ISBN must be exactly 13 digits"
-      });
-    }
-
-    // 3️⃣ Check ISBN uniqueness
-    const [existingBook] = await db.query(
-      "SELECT ISBN FROM Books WHERE ISBN = ?",
-      [ISBN]
-    );
-    if (existingBook.length > 0) {
-      return res.status(400).json({
-        error: "Book with this ISBN already exists"
-      });
-    }
-
-    // 4️⃣ Validate category
-    const validCategories = ['Science', 'Art', 'Religion', 'History', 'Geography'];
-    if (!validCategories.includes(category)) {
-      return res.status(400).json({
-        error: `Invalid category. Must be one of: ${validCategories.join(', ')}`
-      });
-    }
-
-    // 5️⃣ Validate selling price
-    const price = parseFloat(selling_price);
-    if (isNaN(price) || price <= 0) {
-      return res.status(400).json({
-        error: "Selling price must be a positive number"
-      });
-    }
-
-    // 6️⃣ Validate threshold
-    const bookThreshold = parseInt(threshold);
-
-    if (threshold === undefined || threshold === null) {
-      return res.status(400).json({
-        error: "Threshold is required"
-      });
-    }
-
-    if (isNaN(bookThreshold) || bookThreshold < 1) {
-      return res.status(400).json({
-        error: "Threshold must be a positive integer greater than zero"
-      });
-    }
-
-
-    // 7️⃣ Validate publisher existence (MANDATORY)
-    const [publisher] = await db.query(
-      "SELECT publisher_id FROM Publishers WHERE publisher_id = ?",
-      [publisher_id]
-    );
-
-    if (publisher.length === 0) {
-      return res.status(400).json({
-        error: "Publisher not found"
-      });
-    }
-
-    // 8️⃣ Transaction start
     const connection = await db.getConnection();
 
     try {
       await connection.beginTransaction();
 
-      // Insert book
+      // 2️⃣ Resolve Publisher
+      let finalPublisherId = publisher_id;
+      const pubName = publisher_name || PublisherName;
+
+      if (!finalPublisherId && pubName) {
+        const [existingPub] = await connection.query(
+          "SELECT publisher_id FROM Publishers WHERE name = ?",
+          [pubName]
+        );
+
+        if (existingPub.length > 0) {
+          finalPublisherId = existingPub[0].publisher_id;
+        } else {
+          // Create new publisher if not found
+          const [newPub] = await connection.query(
+            "INSERT INTO Publishers (name) VALUES (?)",
+            [pubName]
+          );
+          finalPublisherId = newPub.insertId;
+        }
+      }
+
+      if (!finalPublisherId) {
+        throw new Error("Publisher information is missing (ID or Name required)");
+      }
+
+      // 3️⃣ Check ISBN uniqueness
+      const [existingBook] = await connection.query(
+        "SELECT ISBN FROM Books WHERE ISBN = ?",
+        [finalISBN]
+      );
+      if (existingBook.length > 0) {
+        throw new Error("Book with this ISBN already exists");
+      }
+
+      // 4️⃣ Insert book
       await connection.query(
         `INSERT INTO Books 
          (ISBN, title, publisher_id, publication_year, selling_price, category, quantity_in_stock, threshold)
-         VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          ISBN,
-          title,
-          publisher_id,
-          publication_year || null,
-          price,
-          category,
-          bookThreshold
+          finalISBN,
+          finalTitle,
+          finalPublisherId,
+          finalYear || null,
+          finalPrice,
+          finalCategory,
+          finalStock,
+          finalThreshold
         ]
       );
 
-      // Insert authors if provided
-      if (author_names && Array.isArray(author_names) && author_names.length > 0) {
-        for (const authorName of author_names) {
+      // 5️⃣ Insert authors
+      if (finalAuthors.length > 0) {
+        for (const authorName of finalAuthors) {
           const trimmedName = authorName.trim();
           if (!trimmedName) continue;
 
@@ -131,7 +128,7 @@ const addBook = async (req, res) => {
 
           await connection.query(
             "INSERT INTO Book_Authors (ISBN, author_id) VALUES (?, ?)",
-            [ISBN, authorId]
+            [finalISBN, authorId]
           );
         }
       }
@@ -140,29 +137,20 @@ const addBook = async (req, res) => {
 
       res.status(201).json({
         success: true,
-        message: "Book added successfully",
-        book: {
-          ISBN,
-          title,
-          category,
-          threshold: bookThreshold,
-          initial_stock: 0
-        }
+        message: "Book added successfully!",
+        book: { ISBN: finalISBN, title: finalTitle }
       });
 
     } catch (error) {
       await connection.rollback();
-      throw error;
+      return res.status(400).json({ error: error.message });
     } finally {
       connection.release();
     }
 
   } catch (error) {
     console.error("Add book error:", error);
-    res.status(500).json({
-      error: "Failed to add book",
-      details: error.message
-    });
+    res.status(500).json({ error: "Internal server error" });
   }
 };
 module.exports = { addBook };
@@ -217,7 +205,7 @@ const updateBook = async (req, res) => {
     // 5️⃣ ❌ If stock is already below threshold → no selling allowed
     if (currentQuantity < threshold) {
       return res.status(400).json({
-        error: `Stock is already below the threshold (${threshold}). You cannot sell more copies. Please wait for the publisher order.`
+        error: "Quantity in stock is less than threshold...Publisher order is waiting for confirmation"
       });
     }
 
@@ -239,7 +227,7 @@ const updateBook = async (req, res) => {
 
     // If stock crossed threshold → trigger fires automatically
     if (newQuantity < threshold) {
-      message += " Stock is now below threshold. An automatic publisher order has been placed.";
+      message += " Quantity in stock is less than threshold...Publisher order is waiting for confirmation";
     }
 
     return res.status(200).json({
@@ -546,6 +534,22 @@ const getBookOrderCount = async (req, res) => {
   }
 };
 
+// f) Get all pending publisher orders
+const getPendingOrders = async (req, res) => {
+  try {
+    const [orders] = await db.query(`
+      SELECT o.order_id, o.ISBN, b.title, o.quantity_ordered, o.order_date
+      FROM Orders_From_Publisher o
+      JOIN Books b ON o.ISBN = b.ISBN
+      WHERE o.status = 'Pending'
+      ORDER BY o.order_date DESC
+    `);
+    res.json({ success: true, data: orders });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch orders", details: error.message });
+  }
+};
+
 module.exports = {
   addBook,
   updateBook,
@@ -554,5 +558,6 @@ module.exports = {
   getSalesByDate,
   getTop5Customers,
   getTop10Books,
-  getBookOrderCount
+  getBookOrderCount,
+  getPendingOrders
 };
